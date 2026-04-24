@@ -313,7 +313,15 @@ export const GENRES: Genre[] = [
 ];
 
 export function findScene(genre: Genre, keyword: string): Scene | undefined {
-  return genre.scenes.find((scene) =>
-    scene.keywords.some((k) => keyword.includes(k))
-  );
+  let best: Scene | undefined;
+  let bestLen = 0;
+  for (const scene of genre.scenes) {
+    for (const k of scene.keywords) {
+      if (keyword.includes(k) && k.length > bestLen) {
+        best = scene;
+        bestLen = k.length;
+      }
+    }
+  }
+  return best;
 }

@@ -36,7 +36,28 @@ export default function GmPage() {
     name: string;
     icons: { url: string; name: string }[];
     selectedUrl: string | null;
+    x: number;
+    y: number;
+    heightVh: number;
   }[]>([]);
+  const draggingRef = useRef<{
+    charaId: string;
+    type: "move" | "resize";
+    startMouseX: number;
+    startMouseY: number;
+    startX: number;
+    startY: number;
+    startSize: number;
+  } | null>(null);
+
+  // Custom genres state
+  const [customGenres, setCustomGenres] = useState<Genre[]>([]);
+  const [showGenreForm, setShowGenreForm] = useState(false);
+  const [newGenreName, setNewGenreName] = useState("");
+  const [showSceneForm, setShowSceneForm] = useState<string | null>(null);
+  const [newSceneLabel, setNewSceneLabel] = useState("");
+  const [newSceneKeywords, setNewSceneKeywords] = useState("");
+  const [newScenePrompt, setNewScenePrompt] = useState("");
 
   // Background crossfade state
   const [currentUrl, setCurrentUrl] = useState<string | null>(null);
@@ -62,6 +83,41 @@ export default function GmPage() {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [log]);
+
+  // Load custom genres from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("customGenres");
+      if (saved) setCustomGenres(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("customGenres", JSON.stringify(customGenres));
+  }, [customGenres]);
+
+  // Drag/resize mouse events
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const { charaId, type, startMouseX, startMouseY, startX, startY, startSize } = draggingRef.current;
+      const dx = e.clientX - startMouseX;
+      const dy = e.clientY - startMouseY;
+      if (type === "move") {
+        setCharas((prev) => prev.map((c) => c.id === charaId ? { ...c, x: startX + dx, y: startY + dy } : c));
+      } else {
+        const newH = Math.max(10, Math.min(90, startSize + dy / window.innerHeight * 100));
+        setCharas((prev) => prev.map((c) => c.id === charaId ? { ...c, heightVh: newH } : c));
+      }
+    };
+    const onMouseUp = () => { draggingRef.current = null; };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const switchScene = useCallback(async (label: string, prompt: string) => {
     setLog((prev) => [...prev, `[切替] 「${label}」`]);
@@ -233,7 +289,15 @@ export default function GmPage() {
       if (data.error) throw new Error(data.error);
       setCharas((prev) => [
         ...prev,
-        { id, name: data.name, icons: data.icons ?? [], selectedUrl: data.icons?.[0]?.url ?? null },
+        {
+          id,
+          name: data.name,
+          icons: data.icons ?? [],
+          selectedUrl: data.icons?.[0]?.url ?? null,
+          x: window.innerWidth - 220 - prev.length * 20,
+          y: Math.floor(window.innerHeight * 0.35),
+          heightVh: 35,
+        },
       ]);
       setCharaUrlInput("");
       setLog((prev) => [...prev, `[立ち絵] 「${data.name}」を読み込みました`]);
@@ -242,6 +306,53 @@ export default function GmPage() {
     }
     setCharaLoading(false);
   }, [charaUrlInput, charas]);
+
+  const handleCharaDragStart = useCallback((e: React.MouseEvent, charaId: string, type: "move" | "resize") => {
+    e.preventDefault();
+    e.stopPropagation();
+    const chara = charas.find((c) => c.id === charaId);
+    if (!chara) return;
+    draggingRef.current = {
+      charaId, type,
+      startMouseX: e.clientX, startMouseY: e.clientY,
+      startX: chara.x, startY: chara.y, startSize: chara.heightVh,
+    };
+  }, [charas]);
+
+  // Custom genre helpers
+  const addCustomGenre = useCallback(() => {
+    const name = newGenreName.trim();
+    if (!name) return;
+    const id = `custom_${Date.now()}`;
+    const colors = [
+      { accent: "text-teal-400", border: "border-teal-800" },
+      { accent: "text-rose-400", border: "border-rose-800" },
+      { accent: "text-amber-400", border: "border-amber-800" },
+      { accent: "text-violet-400", border: "border-violet-800" },
+    ];
+    const c = colors[customGenres.length % colors.length];
+    setCustomGenres((prev) => [...prev, {
+      id, name, nameEn: name, accentColor: c.accent, borderColor: c.border,
+      defaultPrompt: `${name} scene, cinematic, atmospheric`,
+      scenes: [],
+    }]);
+    setNewGenreName("");
+    setShowGenreForm(false);
+  }, [newGenreName, customGenres]);
+
+  const addCustomScene = useCallback(() => {
+    const label = newSceneLabel.trim();
+    const prompt = newScenePrompt.trim();
+    if (!label || !prompt || !showSceneForm) return;
+    const keywords = newSceneKeywords.split(/[,、，\s]+/).map((k) => k.trim()).filter(Boolean);
+    setCustomGenres((prev) => prev.map((g) =>
+      g.id === showSceneForm
+        ? { ...g, scenes: [...g.scenes, { label, keywords, prompt }] }
+        : g
+    ));
+    setNewSceneLabel(""); setNewSceneKeywords(""); setNewScenePrompt("");
+    setShowSceneForm(null);
+  }, [newSceneLabel, newSceneKeywords, newScenePrompt, showSceneForm]);
 
   const handleManualSend = () => {
     const kw = manualKeyword.trim() || (selectedGenre.scenes[0]?.label ?? "");
@@ -292,16 +403,27 @@ export default function GmPage() {
       />
 
       {/* ── Character standing images (立ち絵) ── */}
-      <div className="absolute bottom-0 right-0 z-10 pointer-events-none select-none flex flex-row-reverse items-end">
-        {charas.filter((c) => c.selectedUrl).map((c) => (
+      {charas.filter((c) => c.selectedUrl).map((c) => (
+        <div
+          key={c.id}
+          className="absolute z-10 select-none"
+          style={{ left: c.x, top: c.y }}
+          onMouseDown={(e) => handleCharaDragStart(e, c.id, "move")}
+        >
           <img
-            key={c.id}
             src={c.selectedUrl!}
             alt={c.name}
-            style={{ maxHeight: "35vh", maxWidth: "15vw", objectFit: "contain" }}
+            draggable={false}
+            style={{ height: `${c.heightVh}vh`, maxWidth: "20vw", objectFit: "contain", display: "block", cursor: "move" }}
           />
-        ))}
-      </div>
+          {/* Resize handle */}
+          <div
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
+            style={{ background: "rgba(255,255,255,0.25)", borderTop: "1px solid rgba(255,255,255,0.4)", borderLeft: "1px solid rgba(255,255,255,0.4)" }}
+            onMouseDown={(e) => handleCharaDragStart(e, c.id, "resize")}
+          />
+        </div>
+      ))}
 
       {/* Fog overlay — シーン切替時に霧を演出 */}
       <div
@@ -632,7 +754,7 @@ export default function GmPage() {
           <section className="flex flex-col gap-2">
             <p className="text-[10px] text-gray-700 tracking-widest uppercase">ジャンル</p>
             <div className="flex flex-wrap gap-1.5">
-              {GENRES.map((g: Genre) => (
+              {[...GENRES, ...customGenres].map((g: Genre) => (
                 <button
                   key={g.id}
                   onClick={() => setSelectedGenre(g)}
@@ -645,7 +767,49 @@ export default function GmPage() {
                   {g.name}
                 </button>
               ))}
+              <button
+                onClick={() => setShowGenreForm((v) => !v)}
+                className="px-3 py-1 text-[10px] border border-dashed border-gray-700 text-gray-700 hover:text-gray-400 hover:border-gray-500 transition-all"
+              >
+                ＋
+              </button>
             </div>
+            {showGenreForm && (
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newGenreName}
+                  onChange={(e) => setNewGenreName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addCustomGenre()}
+                  placeholder="ジャンル名"
+                  className="flex-1 bg-black/60 border border-gray-800 px-2 py-1 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-600 min-w-0"
+                />
+                <button onClick={addCustomGenre} className="px-2 py-1 border border-gray-700 text-xs text-gray-500 hover:text-gray-200 transition-colors">追加</button>
+              </div>
+            )}
+            {/* Custom genre scene management */}
+            {customGenres.filter((g) => g.id === selectedGenre.id).map((g) => (
+              <div key={g.id} className="flex flex-col gap-1 border-t border-gray-900 pt-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] text-gray-700">カスタムシーン</p>
+                  <div className="flex gap-1">
+                    <button onClick={() => setShowSceneForm(g.id)} className="text-[9px] text-gray-700 hover:text-gray-400 transition-colors">＋シーン</button>
+                    <button onClick={() => { setCustomGenres((prev) => prev.filter((c) => c.id !== g.id)); setSelectedGenre(GENRES[0]); }} className="text-[9px] text-gray-800 hover:text-red-700 transition-colors">✕削除</button>
+                  </div>
+                </div>
+                {showSceneForm === g.id && (
+                  <div className="flex flex-col gap-1">
+                    <input type="text" value={newSceneLabel} onChange={(e) => setNewSceneLabel(e.target.value)} placeholder="シーン名" className="bg-black/60 border border-gray-800 px-2 py-1 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-600" />
+                    <input type="text" value={newSceneKeywords} onChange={(e) => setNewSceneKeywords(e.target.value)} placeholder="キーワード（カンマ区切り）" className="bg-black/60 border border-gray-800 px-2 py-1 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-600" />
+                    <input type="text" value={newScenePrompt} onChange={(e) => setNewScenePrompt(e.target.value)} placeholder="DALL-E プロンプト（英語）" className="bg-black/60 border border-gray-800 px-2 py-1 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-600" />
+                    <div className="flex gap-1">
+                      <button onClick={addCustomScene} className="flex-1 px-2 py-1 border border-gray-700 text-xs text-gray-500 hover:text-gray-200 transition-colors">追加</button>
+                      <button onClick={() => setShowSceneForm(null)} className="px-2 py-1 border border-gray-800 text-xs text-gray-700 hover:text-gray-400 transition-colors">キャンセル</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </section>
 
           {/* Quick scenes */}
