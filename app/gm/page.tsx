@@ -13,6 +13,7 @@ export default function GmPage() {
   const [log, setLog] = useState<string[]>([]);
   const [manualKeyword, setManualKeyword] = useState("");
   const [listening, setListening] = useState(false);
+  const [interimText, setInterimText] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
   const [generating, setGenerating] = useState(false);
 
@@ -195,44 +196,68 @@ export default function GmPage() {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const resultList = event.results;
-      const len = resultList.length;
-      const lastResult = resultList[len - 1];
+      let interimTranscript = "";
 
-      if (lastResult.isFinal) {
-        const text = lastResult[0].transcript.trim();
-        setLog((prev) => [...prev, text]);
+      for (let i = event.resultIndex; i < resultList.length; i++) {
+        const result = resultList[i];
+        if (result.isFinal) {
+          const text = result[0].transcript.trim();
+          if (!text) continue;
+          setInterimText("");
+          setLog((prev) => [...prev, text]);
 
-        const genre = selectedGenreRef.current;
-        const matched = findScene(genre, text);
+          const genre = selectedGenreRef.current;
+          const matched = findScene(genre, text);
 
-        if (matched) {
-          const now = Date.now();
-          const sameScene = matched.label === lastSentLabelRef.current;
-          const coolingDown = now - lastSwitchedAtRef.current < SWITCH_COOLDOWN_MS;
-          if (!sameScene || !coolingDown) {
-            lastSentLabelRef.current = matched.label;
-            lastSwitchedAtRef.current = now;
-            switchScene(matched.label, matched.prompt);
+          if (matched) {
+            const now = Date.now();
+            const sameScene = matched.label === lastSentLabelRef.current;
+            const coolingDown = now - lastSwitchedAtRef.current < SWITCH_COOLDOWN_MS;
+            if (!sameScene || !coolingDown) {
+              lastSentLabelRef.current = matched.label;
+              lastSwitchedAtRef.current = now;
+              switchScene(matched.label, matched.prompt);
+            }
+          } else {
+            const now = Date.now();
+            if (now - lastAutoDetectedAtRef.current >= AUTO_DETECT_COOLDOWN_MS) {
+              lastAutoDetectedAtRef.current = now;
+              detectAndSwitchScene(text, genre);
+            }
           }
         } else {
-          // キーワード未一致 → GPTで自動検出（クールダウン付き）
-          const now = Date.now();
-          if (now - lastAutoDetectedAtRef.current >= AUTO_DETECT_COOLDOWN_MS) {
-            lastAutoDetectedAtRef.current = now;
-            detectAndSwitchScene(text, genre);
-          }
+          interimTranscript += result[0].transcript;
         }
+      }
+
+      if (interimTranscript) setInterimText(interimTranscript);
+    };
+
+    recognition.onend = () => {
+      if (recognitionRef.current) {
+        try { recognition.start(); } catch { /* 再起動失敗は無視 */ }
       }
     };
 
-    recognition.onend = () => { if (recognitionRef.current) recognition.start(); };
     recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-      if (e.error !== "no-speech") setLog((prev) => [...prev, `[エラー] ${e.error}`]);
+      if (e.error === "not-allowed" || e.error === "audio-capture" || e.error === "service-not-allowed") {
+        setLog((prev) => [...prev, `[エラー] マイクへのアクセスが拒否されました (${e.error})`]);
+        recognitionRef.current = null;
+        setListening(false);
+        setInterimText("");
+      } else if (e.error !== "no-speech" && e.error !== "aborted") {
+        setLog((prev) => [...prev, `[エラー] ${e.error}`]);
+      }
     };
 
-    recognition.start();
-    recognitionRef.current = recognition;
-    setListening(true);
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setListening(true);
+      setLog((prev) => [...prev, "[音声認識] 開始しました"]);
+    } catch (err) {
+      setLog((prev) => [...prev, `[エラー] 音声認識の開始に失敗しました: ${err}`]);
+    }
   }, [switchScene, detectAndSwitchScene]);
 
   const acquireItem = useCallback((item: string, e: React.MouseEvent) => {
@@ -269,6 +294,7 @@ export default function GmPage() {
       recognitionRef.current = null;
     }
     setListening(false);
+    setInterimText("");
   }, []);
 
   const loadCharacter = useCallback(async () => {
@@ -849,7 +875,12 @@ export default function GmPage() {
               </button>
               {listening && <span className="text-[10px] text-red-600 animate-pulse">REC</span>}
             </div>
-            <p className="text-[10px] text-gray-700">キーワード一致 or GPT自動検出で切替</p>
+            {interimText && (
+              <p className="text-[10px] text-gray-500 italic truncate max-w-[200px]">
+                {interimText}
+              </p>
+            )}
+            <p className="text-[10px] text-gray-700">キーワード一致 or AI自動検出で切替</p>
           </section>
 
           {/* Manual */}
