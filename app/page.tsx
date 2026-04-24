@@ -14,12 +14,6 @@ export default function Home() {
         >
           GM
         </Link>
-        <Link
-          href="/play"
-          className="px-8 py-3 border border-gray-700 text-gray-300 hover:border-fog-blue hover:text-fog-blue transition-colors tracking-widest text-sm uppercase"
-        >
-          Player
-        </Link>
       </div>
     </main>
   );
