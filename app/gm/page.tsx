@@ -51,6 +51,12 @@ export default function GmPage() {
     startSize: number;
   } | null>(null);
 
+  // Cocofolia integration state
+  const [cocofoliaMode, setCocofoliaMode] = useState(false);
+  const [gmName, setGmName] = useState("GM");
+  const cocofoliaModeRef = useRef(false);
+  const gmNameRef = useRef("GM");
+
   // Custom genres state
   const [customGenres, setCustomGenres] = useState<Genre[]>([]);
   const [showGenreForm, setShowGenreForm] = useState(false);
@@ -85,17 +91,31 @@ export default function GmPage() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [log]);
 
+  useEffect(() => {
+    cocofoliaModeRef.current = cocofoliaMode;
+  }, [cocofoliaMode]);
+
+  useEffect(() => {
+    gmNameRef.current = gmName;
+  }, [gmName]);
+
   // Load custom genres from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem("customGenres");
       if (saved) setCustomGenres(JSON.parse(saved));
+      const savedGmName = localStorage.getItem("cocofoliaGmName");
+      if (savedGmName) { setGmName(savedGmName); gmNameRef.current = savedGmName; }
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     localStorage.setItem("customGenres", JSON.stringify(customGenres));
   }, [customGenres]);
+
+  useEffect(() => {
+    localStorage.setItem("cocofoliaGmName", gmName);
+  }, [gmName]);
 
   // Drag/resize mouse events
   useEffect(() => {
@@ -181,6 +201,43 @@ export default function GmPage() {
       // 自動検出失敗は無視
     }
   }, [switchScene]);
+
+  // Cocofolia postMessage listener
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (!cocofoliaModeRef.current) return;
+      const msg = event.data;
+      if (!msg || msg.type !== "message") return;
+      const payload = msg.payload ?? msg.data ?? msg;
+      const name: string = payload?.name ?? "";
+      const text: string = payload?.text ?? payload?.message ?? "";
+      if (!text || name !== gmNameRef.current) return;
+
+      setLog((prev) => [...prev, `[ここフォリア] ${name}: ${text}`]);
+
+      const genre = selectedGenreRef.current;
+      const matched = findScene(genre, text);
+      if (matched) {
+        const now = Date.now();
+        const sameScene = matched.label === lastSentLabelRef.current;
+        const coolingDown = now - lastSwitchedAtRef.current < SWITCH_COOLDOWN_MS;
+        if (!sameScene || !coolingDown) {
+          lastSentLabelRef.current = matched.label;
+          lastSwitchedAtRef.current = now;
+          switchScene(matched.label, matched.prompt);
+        }
+      } else {
+        const now = Date.now();
+        if (now - lastAutoDetectedAtRef.current >= AUTO_DETECT_COOLDOWN_MS) {
+          lastAutoDetectedAtRef.current = now;
+          detectAndSwitchScene(text, genre);
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [switchScene, detectAndSwitchScene]);
 
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -857,6 +914,35 @@ export default function GmPage() {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* Cocofolia */}
+          <section className="flex flex-col gap-1.5">
+            <p className="text-[10px] text-gray-700 tracking-widest uppercase">ここフォリア連携</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCocofoliaMode((v) => !v)}
+                className={`px-4 py-1.5 text-xs tracking-widest uppercase border transition-colors ${
+                  cocofoliaMode
+                    ? "border-green-700 text-green-400"
+                    : "border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {cocofoliaMode ? "● 連携中" : "○ 連携OFF"}
+              </button>
+              {cocofoliaMode && <span className="text-[10px] text-green-600 animate-pulse">LIVE</span>}
+            </div>
+            <div className="flex gap-1.5 items-center">
+              <span className="text-[10px] text-gray-600">GM名</span>
+              <input
+                type="text"
+                value={gmName}
+                onChange={(e) => setGmName(e.target.value)}
+                placeholder="GM"
+                className="flex-1 bg-black/60 border border-gray-800 px-2 py-1 text-xs text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-600"
+              />
+            </div>
+            <p className="text-[10px] text-gray-700">GMの発言を自動検出して背景切替</p>
           </section>
 
           {/* Voice */}
