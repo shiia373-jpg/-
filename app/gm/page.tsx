@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Pusher from "pusher-js";
 import { GENRES, findScene, type Genre } from "@/lib/genres";
 
 // Speech API types are declared in types/speech.d.ts
@@ -201,6 +202,39 @@ export default function GmPage() {
       // 自動検出失敗は無視
     }
   }, [switchScene]);
+
+  // Pusher: Chrome拡張からの中継メッセージを受信
+  useEffect(() => {
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+    });
+    const channel = pusher.subscribe("trpg-scene");
+    channel.bind("chat-message", ({ text }: { text: string }) => {
+      setLog((prev) => [...prev, `[拡張機能] ${text}`]);
+      const genre = selectedGenreRef.current;
+      const matched = findScene(genre, text);
+      if (matched) {
+        const now = Date.now();
+        const sameScene = matched.label === lastSentLabelRef.current;
+        const coolingDown = now - lastSwitchedAtRef.current < SWITCH_COOLDOWN_MS;
+        if (!sameScene || !coolingDown) {
+          lastSentLabelRef.current = matched.label;
+          lastSwitchedAtRef.current = now;
+          switchScene(matched.label, matched.prompt);
+        }
+      } else {
+        const now = Date.now();
+        if (now - lastAutoDetectedAtRef.current >= AUTO_DETECT_COOLDOWN_MS) {
+          lastAutoDetectedAtRef.current = now;
+          detectAndSwitchScene(text, genre);
+        }
+      }
+    });
+    return () => {
+      channel.unbind_all();
+      pusher.disconnect();
+    };
+  }, [switchScene, detectAndSwitchScene]);
 
   // Cocofolia postMessage listener
   useEffect(() => {
