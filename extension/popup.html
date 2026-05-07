@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 260px; padding: 12px; font-family: sans-serif; font-size: 13px; background: #1a1a1a; color: #ccc; }
+    h2 { font-size: 14px; margin: 0 0 12px; color: #fff; }
+    label { display: block; margin-bottom: 4px; color: #999; font-size: 11px; }
+    input { width: 100%; box-sizing: border-box; background: #2a2a2a; border: 1px solid #444; color: #eee; padding: 5px 8px; margin-bottom: 10px; font-size: 12px; }
+    button { width: 100%; padding: 8px; font-size: 13px; cursor: pointer; border: none; }
+    #toggleBtn { background: #333; color: #aaa; border: 1px solid #555; }
+    #toggleBtn.active { background: #1a6e3a; color: #4eff8a; border-color: #2a8a4a; }
+    #status { font-size: 11px; color: #666; margin-top: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h2>BG Sync 設定</h2>
+  <label>GM名（ここフォリアでの名前）</label>
+  <input id="gmName" type="text" placeholder="GM">
+  <label>API URL</label>
+  <input id="apiUrl" type="text" placeholder="http://136.109.45.122:3000">
+  <button id="toggleBtn">● 連携OFF</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

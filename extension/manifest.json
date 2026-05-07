@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Cocofolia BG Sync",
+  "version": "1.0",
+  "description": "ここフォリアのGM発言を検出して背景を自動切替",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://ccfolia.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://ccfolia.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "BG Sync"
+  }
+}
