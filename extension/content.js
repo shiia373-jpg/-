@@ -30,11 +30,11 @@ function extractMessage(el) {
 }
 
 function relayMessage(text) {
-  fetch(`${apiUrl}/api/relay-message`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  }).catch((err) => console.error('[BG Sync] relay error:', err));
+  chrome.runtime.sendMessage({ type: 'relay', text, apiUrl }, () => {
+    if (chrome.runtime.lastError) {
+      console.warn('[BG Sync] sendMessage error:', chrome.runtime.lastError.message);
+    }
+  });
 }
 
 function observeChat() {
